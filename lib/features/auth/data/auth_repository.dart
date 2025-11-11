@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../../core/http_client.dart';
@@ -7,11 +8,11 @@ class AuthRepository {
   final FlutterSecureStorage _storage = HttpClient.secure;
 
   Future<Map<String, dynamic>> login(String email, String password) async {
+    await _storage.deleteAll();
     final res = await _dio.post('auth/login', data: {
       'email': email,
       'password': password,
     });
-    // Maneja múltiples formatos posibles del backend
     final data = Map<String, dynamic>.from(res.data as Map);
 
     String? pickToken(Map<String, dynamic> m, List<String> keys) {
@@ -22,7 +23,6 @@ class AuthRepository {
       return null;
     }
 
-    // tokens en raíz o anidado en 'data'
     final nested = (data['data'] is Map<String, dynamic>)
         ? Map<String, dynamic>.from(data['data'])
         : <String, dynamic>{};
@@ -32,7 +32,13 @@ class AuthRepository {
         ?? pickToken(nested, const ['refresh_token', 'refreshToken']);
 
     if (access == null || access.isEmpty) {
-      throw Exception('El backend no retornó access_token en login');
+      throw Exception('El backend no retorno access_token en login');
+    }
+
+    final role = _extractRole(access);
+    if (role != null && role != 'citizen') {
+      await _storage.deleteAll();
+      throw Exception('El rol $role no esta autorizado para reportar incidentes');
     }
 
     await _storage.write(key: 'access_token', value: access);
@@ -49,7 +55,25 @@ class AuthRepository {
   }
 
   Future<void> logout() async {
-    try { await _dio.post('auth/logout'); } catch (_) {}
+    try {
+      await _dio.post('auth/logout');
+    } catch (_) {}
     await _storage.deleteAll();
+  }
+
+  String? _extractRole(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length != 3) return null;
+      final payload = utf8.decode(base64Url.decode(base64Url.normalize(parts[1])));
+      final decoded = json.decode(payload);
+      if (decoded is Map<String, dynamic>) {
+        final dynamic role = decoded['role'] ?? decoded['rol'];
+        if (role is String && role.isNotEmpty) {
+          return role.toLowerCase();
+        }
+      }
+    } catch (_) {}
+    return null;
   }
 }

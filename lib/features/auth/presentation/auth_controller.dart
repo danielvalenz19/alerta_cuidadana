@@ -21,9 +21,10 @@ class AuthController extends StateNotifier<AuthState> {
       await _repo.login(email, password);
       state = state.copyWith(loading: false, authenticated: true);
     } catch (e) {
-      String message = 'Error al iniciar sesión. Verifica tus credenciales';
-      if (e is Exception) {
-        // puedes especializar con DioException y revisar statusCode 401
+      var message = 'Error al iniciar sesion. Verifica tus credenciales.';
+      final text = e.toString();
+      if (text.isNotEmpty) {
+        message = text.replaceFirst('Exception: ', '');
       }
       state = state.copyWith(loading: false, error: message, authenticated: false);
     }

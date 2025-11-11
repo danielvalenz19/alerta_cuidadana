@@ -1,3 +1,4 @@
+import 'dart:developer' as developer;
 import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:dio/dio.dart';
@@ -42,20 +43,29 @@ class IncidentRepository {
     final pos = await _getPosition();
     final bat = await _battery.batteryLevel;
     final (os, ver) = await _os();
-    final payload = {
-      'lat': pos.latitude,
-      'lng': pos.longitude,
-      'accuracy': pos.accuracy.toInt(),
-      'occurred_at': DateTime.now().toUtc().toIso8601String(),
-      'source': 'mobile',
-      'init_battery': bat,
-      'device_os': os,
-      'device_ver': ver,
+    final lat = double.parse(pos.latitude.toStringAsFixed(6));
+    final lng = double.parse(pos.longitude.toStringAsFixed(6));
+    final accuracy = pos.accuracy.isFinite ? pos.accuracy.round() : null;
+    final battery = bat.clamp(0, 100).toInt();
+    final payload = <String, dynamic>{
+      'lat': lat,
+      'lng': lng,
+      if (accuracy != null) 'accuracy': accuracy,
+      'battery': battery,
+      'device': {
+        'os': os,
+        'version': ver.isEmpty ? 'unknown' : ver,
+      },
     };
     final access = await _ss.read(key: 'access_token');
     if (access == null || access.isEmpty) {
       throw Exception('No hay access_token almacenado. Inicia sesion de nuevo.');
     }
+
+    developer.log(
+      'POST /api/v1/incidents payload: $payload',
+      name: 'IncidentRepository',
+    );
 
     final response = await _dio.post(
       'incidents',
