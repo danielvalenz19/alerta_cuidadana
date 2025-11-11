@@ -17,6 +17,9 @@ class HttpClient {
     dio.interceptors.clear();
     dio.interceptors.add(AuthInterceptor(dio, secure));
     dio.interceptors.add(LogInterceptor(
-      requestBody: true, responseBody: true, requestHeader: false));
+      requestHeader: true,
+      requestBody: true,
+      responseBody: true,
+    ));
   }
 }

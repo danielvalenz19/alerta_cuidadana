@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../../core/tokens.dart';
 import 'auth_controller.dart';
 
@@ -13,6 +14,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailCtrl = TextEditingController();
   final _passCtrl  = TextEditingController();
+  final _ss = const FlutterSecureStorage();
+
+  Future<void> _debugTokensOnce() async {
+    try {
+      final a = await _ss.read(key: 'access_token');
+      final r = await _ss.read(key: 'refresh_token');
+      // ignore: avoid_print
+      print('tokens: access=${a != null && a.isNotEmpty}, refresh=${r != null && r.isNotEmpty}');
+    } catch (_) {}
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -71,6 +82,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                     .login(_emailCtrl.text.trim(), _passCtrl.text);
                             if (!context.mounted) return;
                             if (ref.read(authControllerProvider).authenticated) {
+                              await _debugTokensOnce();
                               Navigator.of(context).pushReplacementNamed('/home');
                             }
                           }
