@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
 import '../../../core/tokens.dart';
 import 'auth_controller.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
+
   @override
   ConsumerState<LoginScreen> createState() => _LoginScreenState();
 }
@@ -13,7 +15,7 @@ class LoginScreen extends ConsumerStatefulWidget {
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailCtrl = TextEditingController();
-  final _passCtrl  = TextEditingController();
+  final _passCtrl = TextEditingController();
   final _ss = const FlutterSecureStorage();
   bool _obscurePassword = true;
 
@@ -44,9 +46,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   children: [
                     Icon(Icons.shield_rounded, size: 84, color: Tokens.primary),
                     const SizedBox(height: 16),
-                    Text('Alerta Ciudadana',
+                    Text(
+                      'Alerta Ciudadana',
                       style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        color: Tokens.text, fontWeight: FontWeight.w700)),
+                            color: Tokens.text,
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
                     const SizedBox(height: 24),
                     TextFormField(
                       controller: _emailCtrl,
@@ -54,14 +60,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         labelText: 'Correo',
                         prefixIcon: Icon(Icons.email_outlined),
                       ),
-                      validator: (v)=> (v==null||v.isEmpty) ? 'Obligatorio' : null,
+                      validator: (v) => (v == null || v.isEmpty) ? 'Obligatorio' : null,
                       keyboardType: TextInputType.emailAddress,
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _passCtrl,
                       decoration: InputDecoration(
-                        labelText: 'Contraseña',
+                        labelText: 'Contrasena',
                         prefixIcon: const Icon(Icons.lock_outline),
                         suffixIcon: IconButton(
                           onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
@@ -73,7 +79,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         ),
                       ),
                       obscureText: _obscurePassword,
-                      validator: (v)=> (v==null||v.isEmpty) ? 'Obligatorio' : null,
+                      validator: (v) => (v == null || v.isEmpty) ? 'Obligatorio' : null,
                     ),
                     const SizedBox(height: 18),
                     SizedBox(
@@ -84,27 +90,40 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           backgroundColor: Tokens.primary,
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12))),
-                        onPressed: state.loading ? null : () async {
-                          if (_formKey.currentState!.validate()) {
-                            await ref.read(authControllerProvider.notifier)
-                                    .login(_emailCtrl.text.trim(), _passCtrl.text);
-                            if (!context.mounted) return;
-                            if (ref.read(authControllerProvider).authenticated) {
-                              await _debugTokensOnce();
-                              if (!context.mounted) return;
-                              Navigator.of(context).pushReplacementNamed('/home');
-                            }
-                          }
-                        },
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: state.loading
+                            ? null
+                            : () async {
+                                if (_formKey.currentState!.validate()) {
+                                  final notifier = ref.read(authControllerProvider.notifier);
+                                  await notifier.login(_emailCtrl.text.trim(), _passCtrl.text);
+                                  if (!context.mounted) return;
+                                  final authState = ref.read(authControllerProvider);
+                                  if (authState.authenticated) {
+                                    await _debugTokensOnce();
+                                    if (!context.mounted) return;
+                                    final nextRoute = authState.needsPinSetup ? '/set-pin' : '/home';
+                                    Navigator.of(context).pushReplacementNamed(nextRoute);
+                                  }
+                                }
+                              },
                         child: state.loading
-                          ? const CircularProgressIndicator.adaptive()
-                          : const Text('Ingresar'),
+                            ? const CircularProgressIndicator.adaptive()
+                            : const Text('Ingresar'),
                       ),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pushNamed('/register'),
+                      child: const Text('No tienes cuenta? Registrate'),
                     ),
                     if (state.error != null) ...[
                       const SizedBox(height: 12),
-                      Text(state.error!, style: const TextStyle(color: Tokens.danger)),
+                      Text(
+                        state.error!,
+                        style: const TextStyle(color: Tokens.danger),
+                      ),
                     ],
                   ],
                 ),
@@ -116,3 +135,4 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     );
   }
 }
+

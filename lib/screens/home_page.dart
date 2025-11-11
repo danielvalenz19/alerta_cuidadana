@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/providers.dart';
 import '../services/incident_service.dart';
 import '../state/incident_state.dart';
 
@@ -20,6 +21,8 @@ class HomePage extends ConsumerStatefulWidget {
 class _HomePageState extends ConsumerState<HomePage> with TickerProviderStateMixin {
   Timer? _timer;
   late final AnimationController _pulse;
+  bool _cancelingCountdown = false;
+  bool _cancelingIncident = false;
 
   @override
   void initState() {
@@ -72,16 +75,40 @@ class _HomePageState extends ConsumerState<HomePage> with TickerProviderStateMix
   Future<void> _cancelIncident() async {
     final st = ref.read(incidentStateProvider);
     final id = st.currentIncidentId;
-    if (id == null) return;
+    if (id == null || _cancelingIncident) return;
 
+    final vault = ref.read(pinVaultProvider);
+    if (!await vault.exists()) {
+      _showSnackBar('Configura tu PIN antes de cancelar');
+      return;
+    }
+    final lock = await vault.lockoutRemaining();
+    if (lock != null) {
+      _showSnackBar(_lockMessage(lock));
+      return;
+    }
+
+    final pin = await _askPin(title: 'Cancelar alerta');
+    if (pin == null || pin.isEmpty) return;
+
+    setState(() => _cancelingIncident = true);
     try {
+      final valid = await vault.verify(pin);
+      if (!valid) {
+        final remaining = await vault.lockoutRemaining();
+        _showSnackBar(remaining != null ? _lockMessage(remaining) : 'PIN incorrecto');
+        return;
+      }
       final svc = ref.read(incidentServiceProvider);
       await svc.cancelIncident(id, reason: 'cancelado_desde_app');
+      st.reset();
       if (!mounted) return;
       _showSnackBar('Incidente cancelado');
     } on DioException catch (e) {
       if (!mounted) return;
-      if (e.response?.statusCode == 409) {
+      final status = e.response?.statusCode;
+      if (status == 409) {
+        st.reset();
         _showSnackBar('El incidente ya habia finalizado');
       } else {
         _showSnackBar('No se pudo cancelar: ${e.message}');
@@ -90,12 +117,82 @@ class _HomePageState extends ConsumerState<HomePage> with TickerProviderStateMix
       if (!mounted) return;
       _showSnackBar('No se pudo cancelar: $e');
     } finally {
-      ref.read(incidentStateProvider).reset();
+      if (mounted) {
+        setState(() => _cancelingIncident = false);
+      }
     }
   }
 
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  String _lockMessage(Duration remaining) {
+    final totalSeconds = remaining.inSeconds;
+    final minutes = (totalSeconds ~/ 60).toString().padLeft(2, '0');
+    final seconds = (totalSeconds % 60).toString().padLeft(2, '0');
+    return 'PIN bloqueado. Intenta en $minutes:$seconds';
+  }
+
+  Future<String?> _askPin({required String title}) async {
+    String buffer = '';
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          keyboardType: TextInputType.number,
+          autofocus: true,
+          obscureText: true,
+          decoration: const InputDecoration(labelText: 'PIN (4-6 digitos)'),
+          onChanged: (value) => buffer = value,
+          onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cerrar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(buffer.trim()),
+            child: const Text('Aceptar'),
+          ),
+        ],
+      ),
+    );
+    final value = result?.trim() ?? '';
+    if (value.isEmpty) return null;
+    return value;
+  }
+
+  Future<void> _handleCountdownCancel() async {
+    if (_cancelingCountdown) return;
+    final vault = ref.read(pinVaultProvider);
+    final hasPin = await vault.exists();
+    if (!hasPin) {
+      if (!mounted) return;
+      _showSnackBar('Configura tu PIN antes de cancelar');
+      return;
+    }
+    final lock = await vault.lockoutRemaining();
+    if (lock != null) {
+      _showSnackBar(_lockMessage(lock));
+      return;
+    }
+    final pin = await _askPin(title: 'Cancelar envio');
+    if (pin == null) return;
+    setState(() => _cancelingCountdown = true);
+    final valid = await vault.verify(pin);
+    if (!mounted) return;
+    if (valid) {
+      _timer?.cancel();
+      ref.read(incidentStateProvider).reset();
+      _showSnackBar('Cuenta regresiva cancelada');
+    } else {
+      final remaining = await vault.lockoutRemaining();
+      _showSnackBar(remaining != null ? _lockMessage(remaining) : 'PIN incorrecto');
+    }
+    setState(() => _cancelingCountdown = false);
   }
 
   @override
@@ -107,6 +204,19 @@ class _HomePageState extends ConsumerState<HomePage> with TickerProviderStateMix
     final isActive = st.phase == IncidentPhase.active;
 
     return Scaffold(
+      appBar: AppBar(
+        title: const Text('Alerta Ciudadana'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.vpn_key_outlined),
+            tooltip: 'Cambiar PIN',
+            onPressed: () => Navigator.of(context).pushNamed('/change-pin'),
+          ),
+        ],
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+      ),
       body: Stack(
         alignment: Alignment.center,
         children: [
@@ -149,13 +259,16 @@ class _HomePageState extends ConsumerState<HomePage> with TickerProviderStateMix
                     ),
                     const SizedBox(height: 24),
                     FilledButton.tonal(
-                      onPressed: () {
-                        _timer?.cancel();
-                        ref.read(incidentStateProvider).reset();
-                      },
-                      child: const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                        child: Text('Cancelar'),
+                      onPressed: _cancelingCountdown ? null : _handleCountdownCancel,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        child: _cancelingCountdown
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator.adaptive(strokeWidth: 2),
+                              )
+                            : const Text('Cancelar'),
                       ),
                     ),
                   ],
@@ -174,8 +287,14 @@ class _HomePageState extends ConsumerState<HomePage> with TickerProviderStateMix
                       padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
                       shape: const StadiumBorder(),
                     ),
-                    onPressed: _cancelIncident,
-                    child: const Text('Cancelar alerta'),
+                    onPressed: _cancelingIncident ? null : _cancelIncident,
+                    child: _cancelingIncident
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator.adaptive(strokeWidth: 2),
+                          )
+                        : const Text('Cancelar alerta'),
                   ),
                   const SizedBox(height: 12),
                   const Text(

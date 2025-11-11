@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'core/tokens.dart';
 import 'features/auth/presentation/login_screen.dart';
+import 'features/auth/presentation/register_screen.dart';
+import 'screens/change_pin_page.dart';
 import 'screens/home_page.dart';
+import 'screens/set_pin_page.dart';
 
 class WelcomeScreen extends StatelessWidget {
   const WelcomeScreen({super.key});
@@ -41,6 +44,9 @@ class App extends StatelessWidget {
       routes: {
         '/': (_) => const LoginScreen(),
         '/home': (_) => const HomePage(),
+        '/register': (_) => const RegisterScreen(),
+        '/set-pin': (_) => const SetPinPage(),
+        '/change-pin': (_) => const ChangePinPage(),
       },
     );
   }
