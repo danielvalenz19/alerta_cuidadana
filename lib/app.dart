@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'core/tokens.dart';
 import 'features/auth/presentation/login_screen.dart';
-import 'features/incident/presentation/home_screen.dart';
-import 'features/incident/presentation/active_incident_screen.dart';
+import 'screens/home_page.dart';
 
 class WelcomeScreen extends StatelessWidget {
   const WelcomeScreen({super.key});
@@ -41,8 +40,7 @@ class App extends StatelessWidget {
       initialRoute: initialRoute,
       routes: {
         '/': (_) => const LoginScreen(),
-        '/home': (_) => const HomeScreen(),
-        '/incident': (_) => const ActiveIncidentScreen(),
+        '/home': (_) => const HomePage(),
       },
     );
   }

@@ -92,6 +92,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             if (!context.mounted) return;
                             if (ref.read(authControllerProvider).authenticated) {
                               await _debugTokensOnce();
+                              if (!context.mounted) return;
                               Navigator.of(context).pushReplacementNamed('/home');
                             }
                           }
