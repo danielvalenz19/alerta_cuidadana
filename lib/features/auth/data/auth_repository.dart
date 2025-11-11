@@ -7,25 +7,49 @@ class AuthRepository {
   final FlutterSecureStorage _storage = HttpClient.secure;
 
   Future<Map<String, dynamic>> login(String email, String password) async {
-    final res = await _dio.post('/auth/login', data: {
+    final res = await _dio.post('auth/login', data: {
       'email': email,
       'password': password,
     });
-    // Esperado: { access_token, refresh_token, user }
-    final data = res.data as Map<String, dynamic>;
-    await _storage.write(key: 'access_token', value: data['access_token']);
-    await _storage.write(key: 'refresh_token', value: data['refresh_token']);
-    await _storage.write(key: 'user', value: data['user'] != null ? data['user'].toString() : '{}');
+    // Maneja múltiples formatos posibles del backend
+    final data = Map<String, dynamic>.from(res.data as Map);
+
+    String? pickToken(Map<String, dynamic> m, List<String> keys) {
+      for (final k in keys) {
+        final v = m[k];
+        if (v is String && v.isNotEmpty) return v;
+      }
+      return null;
+    }
+
+    // tokens en raíz o anidado en 'data'
+    final nested = (data['data'] is Map<String, dynamic>)
+        ? Map<String, dynamic>.from(data['data'])
+        : <String, dynamic>{};
+    final access = pickToken(data, const ['access_token', 'accessToken', 'token', 'jwt'])
+        ?? pickToken(nested, const ['access_token', 'accessToken', 'token', 'jwt']);
+    final refresh = pickToken(data, const ['refresh_token', 'refreshToken'])
+        ?? pickToken(nested, const ['refresh_token', 'refreshToken']);
+
+    if (access == null || access.isEmpty) {
+      throw Exception('El backend no retornó access_token en login');
+    }
+
+    await _storage.write(key: 'access_token', value: access);
+    if (refresh != null && refresh.isNotEmpty) {
+      await _storage.write(key: 'refresh_token', value: refresh);
+    }
+    await _storage.write(key: 'user', value: (data['user'] ?? nested['user'])?.toString() ?? '{}');
     return data;
   }
 
   Future<Map<String, dynamic>> me() async {
-    final res = await _dio.get('/auth/me');
+    final res = await _dio.get('auth/me');
     return res.data as Map<String, dynamic>;
   }
 
   Future<void> logout() async {
-    try { await _dio.post('/auth/logout'); } catch (_) {}
+    try { await _dio.post('auth/logout'); } catch (_) {}
     await _storage.deleteAll();
   }
 }

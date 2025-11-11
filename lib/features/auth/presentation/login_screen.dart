@@ -15,6 +15,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _emailCtrl = TextEditingController();
   final _passCtrl  = TextEditingController();
   final _ss = const FlutterSecureStorage();
+  bool _obscurePassword = true;
 
   Future<void> _debugTokensOnce() async {
     try {
@@ -43,7 +44,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   children: [
                     Icon(Icons.shield_rounded, size: 84, color: Tokens.primary),
                     const SizedBox(height: 16),
-                    Text('Alerta Ciudadana', 
+                    Text('Alerta Ciudadana',
                       style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                         color: Tokens.text, fontWeight: FontWeight.w700)),
                     const SizedBox(height: 24),
@@ -59,11 +60,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _passCtrl,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'Contraseña',
-                        prefixIcon: Icon(Icons.lock_outline),
+                        prefixIcon: const Icon(Icons.lock_outline),
+                        suffixIcon: IconButton(
+                          onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                          icon: Icon(
+                            _obscurePassword
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                          ),
+                        ),
                       ),
-                      obscureText: true,
+                      obscureText: _obscurePassword,
                       validator: (v)=> (v==null||v.isEmpty) ? 'Obligatorio' : null,
                     ),
                     const SizedBox(height: 18),

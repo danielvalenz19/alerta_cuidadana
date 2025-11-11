@@ -22,7 +22,7 @@ class AuthInterceptor extends Interceptor {
       final refresh = await _storage.read(key: 'refresh_token');
       if (refresh != null) {
         try {
-          final resp = await _dio.post('/auth/refresh', data: {'refresh_token': refresh});
+          final resp = await _dio.post('auth/refresh', data: {'refresh_token': refresh});
           final newAccess = resp.data['access_token'] as String?;
           if (newAccess != null) {
             await _storage.write(key: 'access_token', value: newAccess);

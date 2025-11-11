@@ -5,7 +5,7 @@ import '../features/auth/data/auth_interceptor.dart';
 
 class HttpClient {
   static final Dio dio = Dio(BaseOptions(
-    baseUrl: Env.apiBaseUrl, // ej. http://10.0.2.2:4000/api/v1
+    baseUrl: _normalizeBaseUrl(Env.apiBaseUrl), // asegura / final para rutas relativas
     connectTimeout: const Duration(seconds: 10),
     receiveTimeout: const Duration(seconds: 15),
     headers: {'Content-Type': 'application/json'},
@@ -21,5 +21,10 @@ class HttpClient {
       requestBody: true,
       responseBody: true,
     ));
+  }
+
+  static String _normalizeBaseUrl(String url) {
+    if (url.isEmpty) return url;
+    return url.endsWith('/') ? url : '$url/';
   }
 }
