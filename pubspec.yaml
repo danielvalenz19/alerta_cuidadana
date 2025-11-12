@@ -45,6 +45,8 @@ dependencies:
   device_info_plus: ^12.2.0
   battery_plus: ^7.0.0
   crypto: ^3.0.7
+  shared_preferences: ^2.5.3
+  provider: ^6.1.5+1
 
 dev_dependencies:
   flutter_test:

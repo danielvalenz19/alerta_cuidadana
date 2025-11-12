@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
-import 'core/tokens.dart';
+import 'package:provider/provider.dart';
+
 import 'features/auth/presentation/login_screen.dart';
 import 'features/auth/presentation/register_screen.dart';
 import 'screens/change_pin_page.dart';
 import 'screens/home_page.dart';
 import 'screens/set_pin_page.dart';
+import 'screens/settings_page.dart';
+import 'settings/settings_controller.dart';
+import 'theme/app_theme.dart';
 
 class WelcomeScreen extends StatelessWidget {
   const WelcomeScreen({super.key});
@@ -12,11 +16,12 @@ class WelcomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Center(
-        child: Text('Bienvenido',
-            style: Theme.of(context)
-                .textTheme
-                .headlineMedium
-                ?.copyWith(fontWeight: FontWeight.bold)),
+        child: Text(
+          'Bienvenido',
+          style: Theme.of(
+            context,
+          ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold),
+        ),
       ),
     );
   }
@@ -28,18 +33,14 @@ class App extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final base = ThemeData(
-      useMaterial3: true,
-      colorSchemeSeed: Tokens.primary,
-      inputDecorationTheme: const InputDecorationTheme(
-        border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
-        filled: true, fillColor: Colors.white),
-    );
+    final isDark = context.watch<SettingsController>().isDark;
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Alerta Ciudadana',
-      theme: base,
+      theme: lightTheme(),
+      darkTheme: darkTheme(),
+      themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
       initialRoute: initialRoute,
       routes: {
         '/': (_) => const LoginScreen(),
@@ -47,6 +48,7 @@ class App extends StatelessWidget {
         '/register': (_) => const RegisterScreen(),
         '/set-pin': (_) => const SetPinPage(),
         '/change-pin': (_) => const ChangePinPage(),
+        '/settings': (_) => const SettingsPage(),
       },
     );
   }
