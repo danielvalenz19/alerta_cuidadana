@@ -1,7 +1,9 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:provider/provider.dart';
 
+import '../data/profile_service.dart';
 import '../security/pin_vault.dart';
 import '../settings/settings_controller.dart';
 import '../theme/brand_decorations.dart';
@@ -25,7 +27,10 @@ class _SettingsPageState extends State<SettingsPage> {
     super.initState();
     final settings = context.read<SettingsController>();
     _nameCtrl = TextEditingController(text: settings.name);
-    _phoneCtrl = TextEditingController(text: settings.phone);
+    _phoneCtrl = TextEditingController(
+      text: _formatPhoneForInput(settings.phone),
+    );
+    Future.microtask(_loadProfileFromBackend);
   }
 
   @override
@@ -37,16 +42,60 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _saveProfile() async {
     if (!_formKey.currentState!.validate()) return;
+    final storage = context.read<FlutterSecureStorage>();
+    final vault = PinVault(storage);
+    if (!await vault.exists()) {
+      _showSnackBar('Configura tu PIN antes de guardar');
+      return;
+    }
+    final locked = await vault.lockoutRemaining();
+    if (locked != null) {
+      _showSnackBar(_lockMessage(locked));
+      return;
+    }
+
+    final pin = await _askPinDialog('Ingresa tu PIN para confirmar');
+    if (pin == null) return;
+    final ok = await vault.verify(pin);
+    if (!ok) {
+      final remaining = await vault.lockoutRemaining();
+      _showSnackBar(
+        remaining != null ? _lockMessage(remaining) : 'PIN incorrecto',
+      );
+      return;
+    }
+
+    final normalizedPhone = _normalizePhoneForApi(_phoneCtrl.text);
+    final trimmedName = _nameCtrl.text.trim();
     setState(() => _saving = true);
     try {
-      await context.read<SettingsController>().saveProfile(
-        newName: _nameCtrl.text,
-        newPhone: _phoneCtrl.text,
+      await context.read<ProfileService>().updateMe(
+        name: trimmedName,
+        phone: normalizedPhone,
       );
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Guardado')));
+      await context.read<SettingsController>().saveProfile(
+        newName: trimmedName,
+        newPhone: normalizedPhone,
+      );
+      _showSnackBar('Perfil actualizado');
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      if (status == 404) {
+        _showSnackBar(
+          'El backend no tiene PUT /api/v1/users/me habilitado (404).',
+        );
+      } else if (status == 403) {
+        _showSnackBar('Tu rol no tiene permiso para editar (403).');
+      } else {
+        final backend = e.response?.data;
+        if (backend is String && backend.trim().isNotEmpty) {
+          _showSnackBar('Error actualizando: ${backend.trim()}');
+        } else {
+          _showSnackBar('Error actualizando: ${e.message}');
+        }
+      }
+    } catch (e) {
+      _showSnackBar('Error: $e');
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -59,9 +108,7 @@ class _SettingsPageState extends State<SettingsPage> {
     if (!mounted) return false;
     final created = await _askSetPin(context);
     if (created && mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('PIN creado')));
+      _showSnackBar('PIN creado');
       return true;
     }
     return false;
@@ -114,11 +161,110 @@ class _SettingsPageState extends State<SettingsPage> {
         false;
   }
 
+  Future<void> _loadProfileFromBackend() async {
+    try {
+      final svc = context.read<ProfileService>();
+      final me = await svc.getMe();
+      final name = (me['name'] ?? '').toString();
+      final normalizedPhone = _normalizeBackendPhone(me['phone']);
+      if (!mounted) return;
+      setState(() {
+        _nameCtrl.text = name;
+        _phoneCtrl.text = _formatPhoneForInput(normalizedPhone);
+      });
+      await context.read<SettingsController>().saveProfile(
+        newName: name,
+        newPhone: normalizedPhone,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      _showSnackBar('No pude leer perfil: $e');
+    }
+  }
+
+  Future<String?> _askPinDialog(String title) async {
+    String buffer = '';
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          keyboardType: TextInputType.number,
+          autofocus: true,
+          obscureText: true,
+          decoration: const InputDecoration(labelText: 'PIN (4-6 digitos)'),
+          onChanged: (value) => buffer = value,
+          onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cerrar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(buffer.trim()),
+            child: const Text('Aceptar'),
+          ),
+        ],
+      ),
+    );
+    final value = result?.trim() ?? '';
+    if (value.isEmpty) return null;
+    return value;
+  }
+
+  void _showSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  String _lockMessage(Duration remaining) {
+    final totalSeconds = remaining.inSeconds;
+    final minutes = (totalSeconds ~/ 60).toString().padLeft(2, '0');
+    final seconds = (totalSeconds % 60).toString().padLeft(2, '0');
+    return 'PIN bloqueado. Intenta en $minutes:$seconds';
+  }
+
+  String _normalizePhoneForApi(String raw) {
+    final digits = raw.replaceAll(RegExp(r'[^\d]'), '');
+    if (digits.isEmpty) return '';
+    var normalized = digits;
+    if (!normalized.startsWith('502')) {
+      normalized = '502$normalized';
+    }
+    return '+$normalized';
+  }
+
+  String _normalizeBackendPhone(dynamic raw) {
+    final value = raw?.toString().trim() ?? '';
+    if (value.isEmpty) return '';
+    final digits = value.replaceAll(RegExp(r'[^\d]'), '');
+    if (digits.isEmpty) return '';
+    var normalized = digits;
+    if (!normalized.startsWith('502')) {
+      normalized = '502$normalized';
+    }
+    return '+$normalized';
+  }
+
+  String _formatPhoneForInput(String phone) {
+    if (phone.isEmpty) return '';
+    final digits = phone.replaceAll(RegExp(r'[^\d]'), '');
+    if (digits.startsWith('502')) {
+      return digits.substring(3);
+    }
+    return digits;
+  }
+
   String? _validateName(String? value) =>
       (value == null || value.trim().isEmpty) ? 'Requerido' : null;
 
   String? _validatePhone(String? value) {
-    if (value == null || value.trim().length < 8) return 'Telefono invalido';
+    if (value == null || !RegExp(r'^\d{8}$').hasMatch(value.trim())) {
+      return 'Telefono invalido (8 digitos)';
+    }
     return null;
   }
 

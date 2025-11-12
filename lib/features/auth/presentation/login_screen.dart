@@ -165,23 +165,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                   icon: const Icon(Icons.person_add_alt_1),
                                   label: const Text('Crear cuenta ciudadana'),
                                 ),
-                                if (state.error != null) ...[
-                                  const SizedBox(height: 16),
-                                  Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: Tokens.danger.withOpacity(0.1),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Text(
-                                      state.error!,
-                                      style: TextStyle(
-                                        color: Tokens.danger,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ),
-                                ],
+                                AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 300),
+                                  child: state.error == null
+                                      ? const SizedBox.shrink()
+                                      : Padding(
+                                          key: ValueKey(state.error),
+                                          padding: const EdgeInsets.only(
+                                            top: 16,
+                                          ),
+                                          child: _ErrorBanner(
+                                            message: state.error!,
+                                          ),
+                                        ),
+                                ),
                               ],
                             ),
                           ),
@@ -254,6 +251,41 @@ class _HeroHeader extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _ErrorBanner extends StatelessWidget {
+  final String message;
+  const _ErrorBanner({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Tokens.danger.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Tokens.danger.withOpacity(0.25)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.error_outline_rounded, color: Tokens.danger),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Tokens.danger,
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
