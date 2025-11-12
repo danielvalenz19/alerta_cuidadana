@@ -9,8 +9,9 @@ class SettingsController extends ChangeNotifier {
 
   String name;
   String phone;
+  int? userId;
 
-  SettingsController({required this.name, required this.phone});
+  SettingsController({required this.name, required this.phone, this.userId});
 
   Future<void> load() async {
     final sp = await SharedPreferences.getInstance();
@@ -28,9 +29,13 @@ class SettingsController extends ChangeNotifier {
   Future<void> saveProfile({
     required String newName,
     required String newPhone,
+    int? newUserId,
   }) async {
     name = newName.trim();
     phone = newPhone.trim();
+    if (newUserId != null) {
+      userId = newUserId;
+    }
     notifyListeners();
   }
 }

@@ -21,15 +21,20 @@ class _SettingsPageState extends State<SettingsPage> {
   late final TextEditingController _nameCtrl;
   late final TextEditingController _phoneCtrl;
   bool _saving = false;
+  bool _editing = false;
+  String _origName = '';
+  String _origPhone = '';
+  int? _userId;
 
   @override
   void initState() {
     super.initState();
     final settings = context.read<SettingsController>();
-    _nameCtrl = TextEditingController(text: settings.name);
-    _phoneCtrl = TextEditingController(
-      text: _formatPhoneForInput(settings.phone),
-    );
+    _origName = settings.name;
+    _origPhone = settings.phone;
+    _userId = settings.userId;
+    _nameCtrl = TextEditingController();
+    _phoneCtrl = TextEditingController();
     Future.microtask(_loadProfileFromBackend);
   }
 
@@ -41,7 +46,28 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _saveProfile() async {
+    if (!_editing) return;
     if (!_formKey.currentState!.validate()) return;
+
+    final trimmedName = _nameCtrl.text.trim();
+    final phoneDigits = _phoneCtrl.text.trim();
+    final normalizedPhone = phoneDigits.isEmpty
+        ? ''
+        : _normalizePhoneForApi(phoneDigits);
+
+    final delta = <String, dynamic>{};
+    if (trimmedName.isNotEmpty && trimmedName != _origName) {
+      delta['full_name'] = trimmedName;
+    }
+    if (normalizedPhone.isNotEmpty && normalizedPhone != _origPhone) {
+      delta['phone'] = normalizedPhone;
+    }
+
+    if (delta.isEmpty) {
+      _showSnackBar('Sin cambios');
+      return;
+    }
+
     final storage = context.read<FlutterSecureStorage>();
     final vault = PinVault(storage);
     if (!await vault.exists()) {
@@ -65,25 +91,52 @@ class _SettingsPageState extends State<SettingsPage> {
       return;
     }
 
-    final normalizedPhone = _normalizePhoneForApi(_phoneCtrl.text);
-    final trimmedName = _nameCtrl.text.trim();
+    final profileService = context.read<ProfileService>();
+    final settingsController = context.read<SettingsController>();
+
     setState(() => _saving = true);
     try {
-      await context.read<ProfileService>().updateMe(
-        name: trimmedName,
-        phone: normalizedPhone,
+      final response = await profileService.patchProfile(
+        delta: delta,
+        userId: _userId,
       );
-      await context.read<SettingsController>().saveProfile(
-        newName: trimmedName,
-        newPhone: normalizedPhone,
+      final responseName = _pickName(response);
+      final responsePhone = _normalizeBackendPhone(_pickPhone(response));
+      final nextUserId = _userId ?? _extractUserId(response);
+
+      final effectiveName = responseName.isNotEmpty
+          ? responseName
+          : trimmedName;
+      final effectivePhone = responsePhone.isNotEmpty
+          ? responsePhone
+          : (normalizedPhone.isNotEmpty ? normalizedPhone : _origPhone);
+
+      _origName = effectiveName;
+      _origPhone = effectivePhone;
+      _userId = nextUserId;
+
+      await settingsController.saveProfile(
+        newName: effectiveName,
+        newPhone: effectivePhone,
+        newUserId: nextUserId,
       );
+      if (!mounted) return;
+      setState(() {
+        _editing = false;
+        _nameCtrl.clear();
+        _phoneCtrl.clear();
+      });
       _showSnackBar('Perfil actualizado');
     } on DioException catch (e) {
       final status = e.response?.statusCode;
-      if (status == 404) {
-        _showSnackBar(
-          'El backend no tiene PUT /api/v1/users/me habilitado (404).',
-        );
+      if (status == 404 || status == 405) {
+        if (_userId == null) {
+          _showSnackBar('No se encontro endpoint de autoedicion (404/405).');
+        } else {
+          _showSnackBar(
+            'El backend no acepta PATCH /auth/me (status $status).',
+          );
+        }
       } else if (status == 403) {
         _showSnackBar('Tu rol no tiene permiso para editar (403).');
       } else {
@@ -112,6 +165,27 @@ class _SettingsPageState extends State<SettingsPage> {
       return true;
     }
     return false;
+  }
+
+  void _enterEdit(SettingsController settings) {
+    setState(() {
+      _editing = true;
+      _nameCtrl.text = settings.name;
+      _phoneCtrl.text = _formatPhoneForInput(settings.phone);
+      _origName = settings.name;
+      _origPhone = settings.phone;
+      _userId = settings.userId ?? _userId;
+    });
+  }
+
+  void _cancelEdit() {
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _editing = false;
+      _nameCtrl.clear();
+      _phoneCtrl.clear();
+    });
+    _formKey.currentState?.reset();
   }
 
   Future<bool> _askSetPin(BuildContext context) async {
@@ -164,17 +238,25 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _loadProfileFromBackend() async {
     try {
       final svc = context.read<ProfileService>();
+      final controller = context.read<SettingsController>();
       final me = await svc.getMe();
-      final name = (me['name'] ?? '').toString();
-      final normalizedPhone = _normalizeBackendPhone(me['phone']);
+      final name = _pickName(me);
+      final normalizedPhone = _normalizeBackendPhone(_pickPhone(me));
+      final userId = _extractUserId(me);
       if (!mounted) return;
-      setState(() {
-        _nameCtrl.text = name;
-        _phoneCtrl.text = _formatPhoneForInput(normalizedPhone);
-      });
-      await context.read<SettingsController>().saveProfile(
+      _origName = name;
+      _origPhone = normalizedPhone;
+      _userId = userId ?? _userId;
+      if (_editing) {
+        setState(() {
+          _nameCtrl.text = name;
+          _phoneCtrl.text = _formatPhoneForInput(normalizedPhone);
+        });
+      }
+      await controller.saveProfile(
         newName: name,
         newPhone: normalizedPhone,
+        newUserId: _userId,
       );
     } catch (e) {
       if (!mounted) return;
@@ -258,6 +340,68 @@ class _SettingsPageState extends State<SettingsPage> {
     return digits;
   }
 
+  String _pickName(Map<String, dynamic> source) {
+    final value = _pickFromKeys(source, const [
+      'full_name',
+      'fullName',
+      'name',
+    ]);
+    if (value != null && value.isNotEmpty) return value;
+    for (final nestedKey in ['user', 'data']) {
+      final nested = source[nestedKey];
+      if (nested is Map<String, dynamic>) {
+        final nestedValue = _pickName(nested);
+        if (nestedValue.isNotEmpty) return nestedValue;
+      }
+    }
+    return '';
+  }
+
+  String _pickPhone(Map<String, dynamic> source) {
+    final value = _pickFromKeys(source, const [
+      'phone',
+      'telefono',
+      'tel',
+      'mobile',
+    ]);
+    if (value != null && value.isNotEmpty) return value;
+    for (final nestedKey in ['user', 'data']) {
+      final nested = source[nestedKey];
+      if (nested is Map<String, dynamic>) {
+        final nestedValue = _pickPhone(nested);
+        if (nestedValue.isNotEmpty) return nestedValue;
+      }
+    }
+    return '';
+  }
+
+  int? _extractUserId(Map<String, dynamic> source) {
+    final raw = _pickFromKeys(source, const ['id', 'user_id', 'userId']);
+    final parsed = raw != null ? int.tryParse(raw) : null;
+    if (parsed != null) return parsed;
+    for (final nestedKey in ['user', 'data']) {
+      final nested = source[nestedKey];
+      if (nested is Map<String, dynamic>) {
+        final nestedId = _extractUserId(nested);
+        if (nestedId != null) return nestedId;
+      }
+    }
+    return null;
+  }
+
+  String? _pickFromKeys(Map<String, dynamic> source, List<String> keys) {
+    for (final key in keys) {
+      final value = source[key];
+      if (value is String && value.trim().isNotEmpty) {
+        return value.trim();
+      }
+      if (value is num) {
+        return value.toString();
+      }
+    }
+    return null;
+  }
+
   String? _validateName(String? value) =>
       (value == null || value.trim().isEmpty) ? 'Requerido' : null;
 
@@ -295,30 +439,48 @@ class _SettingsPageState extends State<SettingsPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Text(
-                        'Tu perfil',
-                        style: Theme.of(context).textTheme.titleMedium,
+                      Row(
+                        children: [
+                          Text(
+                            'Tu perfil',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const Spacer(),
+                          if (!_editing)
+                            TextButton.icon(
+                              onPressed: () => _enterEdit(settings),
+                              icon: const Icon(Icons.edit_outlined),
+                              label: const Text('Editar'),
+                            )
+                          else
+                            TextButton.icon(
+                              onPressed: _saving ? null : _cancelEdit,
+                              icon: const Icon(Icons.close),
+                              label: const Text('Cancelar'),
+                            ),
+                        ],
                       ),
                       const SizedBox(height: 16),
                       TextFormField(
                         controller: _nameCtrl,
+                        enabled: _editing && !_saving,
                         decoration: const InputDecoration(labelText: 'Nombre'),
-                        validator: _validateName,
+                        validator: _editing ? _validateName : null,
                         textInputAction: TextInputAction.next,
                       ),
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: _phoneCtrl,
+                        enabled: _editing && !_saving,
                         decoration: const InputDecoration(
                           labelText: 'Telefono',
                         ),
                         keyboardType: TextInputType.phone,
-                        validator: _validatePhone,
+                        validator: _editing ? _validatePhone : null,
                       ),
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.icon(
+                      if (_editing) ...[
+                        const SizedBox(height: 16),
+                        FilledButton.icon(
                           onPressed: _saving ? null : _saveProfile,
                           icon: _saving
                               ? const SizedBox(
@@ -333,7 +495,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             _saving ? 'Guardando...' : 'Guardar cambios',
                           ),
                         ),
-                      ),
+                      ],
                     ],
                   ),
                 ),

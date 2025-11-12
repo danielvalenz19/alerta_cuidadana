@@ -18,7 +18,10 @@ Future<void> main() async {
   final storage = HttpClient.secure;
   final profileService = ProfileService(HttpClient.dio, storage);
   final profile = await loadCachedProfile(storage);
-  final settings = SettingsController(name: profile.name, phone: profile.phone);
+  final settings = SettingsController(
+    name: profile.name,
+    phone: profile.phone,
+  );
   await settings.load();
 
   runApp(

@@ -11,11 +11,7 @@ class ProfileService {
     final token = await _token();
     if (token == null) throw Exception('Sin token');
     final response = await _dio.get('auth/me', options: _auth(token));
-    final data = response.data;
-    if (data is Map<String, dynamic>) {
-      return Map<String, dynamic>.from(data);
-    }
-    throw Exception('Respuesta invalida del perfil');
+    return _asMap(response.data);
   }
 
   Future<void> updateMe({required String name, required String phone}) async {
@@ -29,6 +25,38 @@ class ProfileService {
     final status = response.statusCode;
     if (status != null && status != 200 && status != 204) {
       throw Exception('Update perfil fallo ($status)');
+    }
+  }
+
+  Future<Map<String, dynamic>> patchProfile({
+    required Map<String, dynamic> delta,
+    int? userId,
+  }) async {
+    if (delta.isEmpty) {
+      throw ArgumentError('delta no puede estar vacio');
+    }
+    final token = await _token();
+    if (token == null) throw Exception('Sin token');
+    final options = _auth(token);
+    try {
+      final response = await _dio.patch(
+        'auth/me',
+        data: delta,
+        options: options,
+      );
+      return _asMap(response.data);
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      final needsFallback = userId != null && (status == 404 || status == 405);
+      if (needsFallback) {
+        final fallback = await _dio.patch(
+          'admin/users/$userId',
+          data: delta,
+          options: options,
+        );
+        return _asMap(fallback.data);
+      }
+      rethrow;
     }
   }
 
@@ -46,4 +74,11 @@ class ProfileService {
       'Content-Type': 'application/json',
     },
   );
+
+  Map<String, dynamic> _asMap(dynamic data) {
+    if (data is Map<String, dynamic>) {
+      return Map<String, dynamic>.from(data);
+    }
+    return <String, dynamic>{};
+  }
 }
